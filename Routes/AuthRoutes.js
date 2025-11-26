@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, verifyEmail, resendOTP, getMe , forgotPassword , resetPassword } from '../Controllers/AuthController.js';
+import { register, login, verifyEmail, resendOTP, getMe , forgotPassword , resetPassword, updateProfile } from '../Controllers/AuthController.js';
 import { protect } from '../Middlewares/AuthMiddleware.js';
 import { upload } from '../Middlewares/upload.js';
 
@@ -25,5 +25,6 @@ router.post('/reset-password', resetPassword);
 
 // Protected routes
 router.get('/me', protect, getMe);
+router.patch('/update-profile', protect, upload.single('profileImage'), updateProfile);
 
 export default router;

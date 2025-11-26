@@ -1,7 +1,7 @@
 import Community from '../models/Community.js';
 import mongoose from 'mongoose';
 import UserModel from '../Models/UserModel.js';
-
+import Notification from '../Models/Notification.js'; // Import Notification model
 
 const Post = {
     find: (query) => ({
@@ -10,7 +10,6 @@ const Post = {
         })
     })
 };
-
 
 // **Updated Helper function** to execute a query (by ID, then by Slug) and apply Mongoose query options.
 const findCommunity = async (idOrSlug, populateOptions = null, selectOptions = null) => {
@@ -39,7 +38,6 @@ const findCommunity = async (idOrSlug, populateOptions = null, selectOptions = n
     return community;
 };
 
-
 // @desc    Get communities the user is a member of
 // @route   GET /api/v1/communities/my-communities
 // @access  Private (protect)
@@ -59,7 +57,6 @@ const getUserCommunities = async (req, res) => {
             select: 'username avatar'
         });
 
-
         if (!communities || communities.length === 0) {
             // Returns 200 with empty array if no communities joined (NOT a 404)
             return res.status(200).json({
@@ -74,7 +71,6 @@ const getUserCommunities = async (req, res) => {
             count: communities.length,
             data: communities
         });
-
     } catch (error) {
         // Log the error for this specific route
         console.error('Error fetching user communities:', error);
@@ -107,7 +103,6 @@ const getPopularCommunities = async (req, res) => {
             count: popularCommunities.length,
             data: popularCommunities
         });
-
     } catch (error) {
         console.error('Error fetching popular communities:', error);
         res.status(500).json({ success: false, message: 'Server error fetching popular communities.' });
@@ -123,6 +118,7 @@ const getRecommendedCommunities = async (req, res) => {
         // In a real scenario, req.user would already contain interests from the auth middleware lookup.
         const user = req.user; 
         const userInterests = user.interests || [];
+
         console.log('User Interests:', userInterests);
 
         if (userInterests.length === 0) {
@@ -154,7 +150,6 @@ const getRecommendedCommunities = async (req, res) => {
             count: communities.length,
             data: communities
         });
-
     } catch (error) {
         console.error('Error fetching recommended communities:', error);
         res.status(500).json({ success: false, message: 'Server error fetching recommended communities.' });
@@ -200,18 +195,29 @@ const createCommunity = async (req, res) => {
         });
         
         // 4. Update User's profile to include the new community in joinedCommunities
-        // Since the creator is automatically a member, they must be added to their own profile's list.
         await UserModel.findByIdAndUpdate(userId, {
             $addToSet: { joinedCommunities: newCommunity._id }
         }, { new: true });
 
+        // 5. Create notification for community creation
+        await Notification.create({
+            user: userId,
+            type: 'community',
+            title: '🎉 Community Created!',
+            message: `Your community "${name}" has been successfully created. Start inviting members!`,
+            data: { 
+                communityId: newCommunity._id,
+                communityName: name,
+                communitySlug: newCommunity.slug,
+                createdAt: new Date()
+            }
+        });
 
         res.status(201).json({
             success: true,
             message: 'Community created successfully.',
             data: newCommunity
         });
-
     } catch (error) {
         console.error('Error creating community:', error);
         
@@ -261,7 +267,6 @@ const getCommunityInformation = async (req, res) => {
             success: true,
             data: community
         });
-
     } catch (error) {
         console.error('Error fetching community information:', error);
         res.status(500).json({ success: false, message: 'Server error fetching community information.' });
@@ -299,7 +304,6 @@ const getAllDiscussionsInCommunity = async (req, res) => {
             .limit(limit);
         
         // In a real application, you would also fetch the total count for pagination
-
         res.status(200).json({
             success: true,
             community: { _id: community._id, name: community.name, slug: community.slug },
@@ -307,7 +311,6 @@ const getAllDiscussionsInCommunity = async (req, res) => {
             limit,
             data: posts
         });
-
     } catch (error) {
         console.error('Error fetching community discussions:', error);
         res.status(500).json({ success: false, message: 'Server error fetching discussions.' });
@@ -322,6 +325,7 @@ const joinCommunity = async (req, res) => {
         const { idOrSlug } = req.params;
         // User ID is available from the protect middleware
         const userId = req.user._id;
+        const username = req.user.username;
 
         const community = await findCommunity(idOrSlug);
 
@@ -357,6 +361,38 @@ const joinCommunity = async (req, res) => {
         await UserModel.findByIdAndUpdate(userId, {
             $addToSet: { joinedCommunities: community._id }
         }, { new: true });
+
+        // 3. Create notification for user joining community
+        await Notification.create({
+            user: userId,
+            type: 'welcome',
+            title: '✅ Joined Community!',
+            message: `Welcome to "${community.name}"! You are now a member.`,
+            data: { 
+                communityId: community._id,
+                communityName: community.name,
+                communitySlug: community.slug,
+                memberCount: community.memberCount,
+                joinedAt: new Date()
+            }
+        });
+
+        // 4. OPTIONAL: Notify community admin about new member
+        if (community.admin && community.admin.toString() !== userId.toString()) {
+            await Notification.create({
+                user: community.admin,
+                type: 'info',
+                title: '👥 New Member Joined',
+                message: `${username || 'A user'} has joined your community "${community.name}".`,
+                data: { 
+                    communityId: community._id,
+                    communityName: community.name,
+                    newMemberId: userId,
+                    newMemberName: username,
+                    memberCount: community.memberCount
+                }
+            });
+        }
         
         res.status(200).json({
             success: true,
@@ -367,7 +403,6 @@ const joinCommunity = async (req, res) => {
                 memberCount: community.memberCount
             }
         });
-
     } catch (error) {
         console.error('Error joining community:', error);
         // Catch the explicit error from addMember if it somehow gets bypassed
@@ -377,7 +412,6 @@ const joinCommunity = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error while joining community.' });
     }
 };
-
 
 export {
     getUserCommunities,
