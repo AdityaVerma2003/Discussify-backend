@@ -202,4 +202,7 @@ communitySchema.index({ categories: 1 });
 communitySchema.index({ isActive: 1, visibility: 1 });
 communitySchema.index({ 'members.user': 1 });
 
-export default mongoose.model('Community', communitySchema);
+// 💡 THE FIX: Check if the model already exists before compiling it.
+const Community = mongoose.models.Community || mongoose.model('Community', communitySchema);
+
+export default Community;

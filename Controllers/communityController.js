@@ -1,4 +1,4 @@
-import Community from '../models/Community.js';
+import Community from '../Models/Community.js';
 import mongoose from 'mongoose';
 import UserModel from '../Models/UserModel.js';
 import Notification from '../Models/Notification.js'; // Import Notification model
@@ -413,6 +413,85 @@ const joinCommunity = async (req, res) => {
     }
 };
 
+// @desc    Invite a user to a community via email
+// @route   POST /api/v1/communities/:idOrSlug/invite
+// @access  Private (protect, only accessible by admins/moderators)
+const inviteMember = async (req, res) => {
+    try {
+        const { idOrSlug } = req.params;
+        const { email: invitedUserEmail } = req.body;
+        const invitingUserId = req.user._id;
+        const invitingUsername = req.user.username;
+
+        // 1. Find the Community
+        const community = await findCommunity(idOrSlug);
+
+        if (!community) {
+            return res.status(404).json({ success: false, message: 'Community not found.' });
+        }
+
+        // 2. Authorization Check (only community admins/moderators can invite)
+        const userMember = community.members.find(m => m.user.toString() === invitingUserId.toString());
+        if (!userMember || (userMember.role !== 'admin' && userMember.role !== 'moderator')) {
+            return res.status(403).json({ success: false, message: 'Only admins or moderators can send invitations.' });
+        }
+
+        // 3. Find the User to be Invited
+        const invitedUser = await UserModel.findOne({ email: invitedUserEmail });
+
+        if (!invitedUser) {
+            // OPTIONAL: Send a system email to the email address if they don't exist
+            // For now, we only allow inviting existing users.
+            return res.status(404).json({ success: false, message: 'User with this email not found on the platform.' });
+        }
+
+        // 4. Check if the invited user is already a member
+        if (community.isMember(invitedUser._id)) {
+            return res.status(400).json({ success: false, message: `The user ${invitedUserEmail} is already a member of ${community.name}.` });
+        }
+        
+        // 5. Check if an active invitation already exists for this user/community
+        const existingInvite = await Notification.findOne({
+            user: invitedUser._id,
+            type: 'COMMUNITY_INVITE',
+            'data.communityId': community._id,
+            read: false // Assuming unread notifications are active invites
+        });
+
+        if (existingInvite) {
+            return res.status(400).json({ success: false, message: `An invitation has already been sent to ${invitedUserEmail}.` });
+        }
+
+
+        // 6. Create the Invitation Notification
+        await Notification.create({
+            user: invitedUser._id,
+            type: 'COMMUNITY_INVITE',
+            title: `Invitation to Join ${community.name}`,
+            message: `${invitingUsername} has invited you to join the community: ${community.name}.`,
+            data: {
+                communityId: community._id,
+                communityName: community.name,
+                communitySlug: community.slug,
+                inviter: {
+                    id: invitingUserId,
+                    username: invitingUsername
+                },
+                invitedAt: new Date()
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Invitation successfully sent to ${invitedUserEmail}.`
+        });
+
+    } catch (error) {
+        console.error('Error inviting member:', error);
+        res.status(500).json({ success: false, message: 'Server error while sending invitation.' });
+    }
+};
+
 export {
     getUserCommunities,
     getPopularCommunities,
@@ -421,4 +500,5 @@ export {
     getCommunityInformation,
     getAllDiscussionsInCommunity,
     joinCommunity, 
+    inviteMember
 };

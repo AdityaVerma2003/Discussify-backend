@@ -9,6 +9,7 @@ import {
     getCommunityInformation,
     getAllDiscussionsInCommunity,
     joinCommunity, 
+    inviteMember
 } from '../Controllers/communityController.js'; // Assuming the controller path
 
 const communityRouter = express.Router();
@@ -34,6 +35,7 @@ communityRouter.get('/:idOrSlug', getCommunityInformation);
 // GET /api/v1/communities/:idOrSlug/discussions
 // Get all discussions/posts within a community
 
+communityRouter.post('/:idOrSlug/invite', protect, inviteMember);
 
 // Note: Visibility/Membership check is handled inside the controller
 communityRouter.get('/:idOrSlug/discussions', protect, getAllDiscussionsInCommunity);

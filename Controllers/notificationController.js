@@ -129,7 +129,9 @@ export const deleteNotification = async (req, res) => {
 // Clear all notifications
 export const clearAllNotifications = async (req, res) => {
   try {
+    console.log("trying to delete all ")
     await Notification.deleteMany({ user: req.user.id });
+    console.log("after delete all ")
 
     res.status(200).json({
       success: true,
