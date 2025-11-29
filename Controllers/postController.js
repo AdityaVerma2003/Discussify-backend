@@ -43,7 +43,7 @@ const notifyCommunityMembers = async (post, communityId, authorId, authorUsernam
  */
 export const createPost = async (req, res) => {
     try {
-        let { content, communityId, title } = req.body;
+        let { content, communityId} = req.body;
         const author = req.user._id;
 
         // Validation
@@ -55,7 +55,6 @@ export const createPost = async (req, res) => {
             content,
             community: communityId,
             author,
-            title: title || content.substring(0, 50),
             type: 'text'
         };
 
