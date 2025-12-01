@@ -9,7 +9,9 @@ import {
     getCommunityInformation,
     getAllDiscussionsInCommunity,
     joinCommunity, 
-    inviteMember
+    inviteMember,
+    getDiscoverableCommunities,
+    leaveCommunity
 } from '../Controllers/communityController.js'; // Assuming the controller path
 
 const communityRouter = express.Router();
@@ -27,6 +29,7 @@ communityRouter.get('/my-communities', protect, getUserCommunities);
 communityRouter.get('/recommended', protect, getRecommendedCommunities);
 
 communityRouter.get('/popular', getPopularCommunities);
+communityRouter.get('/discover/:userId', getDiscoverableCommunities);
 
 // GET /api/v1/communities/:idOrSlug
 // Get detailed information about a single community
@@ -61,6 +64,12 @@ communityRouter.post(
     '/:idOrSlug/join',
     protect,
     joinCommunity
+);
+
+communityRouter.post(
+    '/:idOrSlug/leave',
+    protect,
+    leaveCommunity
 );
 
 

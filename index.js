@@ -12,6 +12,7 @@ import postRouter from './Routes/postRoutes.js'; // NEW: Import Post Routes
 import { handleMulterError } from './Middlewares/upload.js';
 import connectDB from './DB/connectDB.js';
 import dotenv from 'dotenv';
+import adminRouter from './Routes/adminRoutes.js';
 
 dotenv.config();
 
@@ -63,6 +64,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1/communities', communityRouter);
 app.use('/api/v1/posts', postRouter); 
+app.use('/api/v1/admin', adminRouter);
 
 // Multer error handler (MUST be after routes)
 app.use(handleMulterError);

@@ -83,14 +83,19 @@ const getUserCommunities = async (req, res) => {
 // @access  Public
 const getPopularCommunities = async (req, res) => {
     try {
-        // 'Popular' is defined as 'newly created', so sort by creation date (descending)
+        // 'Popular' is now defined as 'having more than 3 members'
         const limit = parseInt(req.query.limit) || 10;
 
         const popularCommunities = await Community.find({
             isActive: true,
-            visibility: 'public'
+            visibility: 'public',
+            // --- NEW LOGIC START ---
+            $expr: { 
+                $gt: [{ $size: "$members" }, 2] 
+            }
+            // --- NEW LOGIC END ---
         })
-        .sort({ createdAt: -1 }) // Sort by newest first
+        // .sort({ createdAt: -1 }) // Removed original sort based on your request
         .limit(limit)
         .select('-bannedUsers -rules -members') // Exclude sensitive/large fields
         .populate({
@@ -109,6 +114,57 @@ const getPopularCommunities = async (req, res) => {
     }
 };
 
+const getDiscoverableCommunities = async (req, res) => {
+    try {
+        
+        const userIdString = req.params.userId || req.query.userId; 
+        
+        if (!userIdString) {
+            return res.status(400).json({ success: false, message: 'User ID is required for discoverable communities.' });
+        }
+        
+        // Convert the string userId to a Mongoose ObjectId
+        const userId = new mongoose.Types.ObjectId(userIdString);
+
+        const limit = parseInt(req.query.limit) || 10;
+
+        // --- CORRECTED FILTER CRITERIA ---
+        const filter = {
+            isActive: true,
+            visibility: 'public',
+            // 1. Popularity: having more than 2 members (Logic remains correct)
+            $expr: { 
+                // We must use the 'members.length' since the memberCount field 
+                // might not be updated immediately.
+                $gt: [{ $size: "$members" }, 2] 
+            },
+           
+            'members.user': { $nin: [userId] } ,
+            admin:{$nin : [userId]}
+        };
+        // --- END FILTER CRITERIA ---
+
+        const discoverableCommunities = await Community.find(filter)
+        .limit(limit)
+        .select('-bannedUsers -rules ')
+        .populate({
+            path: 'admin',
+            select: 'username avatar'
+        });
+
+        res.status(200).json({
+            success: true,
+            count: discoverableCommunities.length,
+            data: discoverableCommunities
+        });
+    } catch (error) {
+        console.error('Error fetching discoverable communities:', error);
+        if (error.name === 'CastError' && error.path === '_id') {
+             return res.status(400).json({ success: false, message: 'Invalid User ID format.' });
+        }
+        res.status(500).json({ success: false, message: 'Server error fetching discoverable communities.' });
+    }
+};
 // @desc    Get recommended communities based on user interests
 // @route   GET /api/v1/communities/recommended
 // @access  Private (protect)
@@ -492,6 +548,92 @@ const inviteMember = async (req, res) => {
     }
 };
 
+// @desc    Allows a user to leave a community
+// @route   POST /api/v1/communities/:idOrSlug/leave
+// @access  Private (protect)
+const leaveCommunity = async (req, res) => {
+    try {
+        const { idOrSlug } = req.params;
+        // User ID is available from the protect middleware
+        const userId = req.user._id;
+        const username = req.user.username;
+
+        // 1. Find the Community
+        const community = await findCommunity(idOrSlug);
+
+        if (!community) {
+            return res.status(404).json({ success: false, message: 'Community not found.' });
+        }
+
+        // 2. Check if the user is a member
+        if (!community.isMember(userId)) {
+            return res.status(400).json({ success: false, message: 'You are not a member of this community.' });
+        }
+        
+        // 3. Prevent admin from leaving if they are the ONLY member
+        if (community.isAdmin(userId) && community.memberCount === 1) {
+             return res.status(403).json({ 
+                success: false, 
+                message: 'As the sole admin, you must delete the community or transfer admin rights before leaving.' 
+            });
+        }
+
+        // 4. Remove user from community's member list and update memberCount
+        // This method is defined in your Community Model methods
+        await community.removeMember(userId);
+
+        // 5. Update User's joinedCommunities array
+        // Use $pull to remove the community ID from the array.
+        await UserModel.findByIdAndUpdate(userId, {
+            $pull: { joinedCommunities: community._id }
+        }, { new: true });
+
+        // 6. Create notification for user leaving community
+        await Notification.create({
+            user: userId,
+            type: 'info',
+            title: '👋 Left Community',
+            message: `You have successfully left "${community.name}".`,
+            data: { 
+                communityId: community._id,
+                communityName: community.name,
+                communitySlug: community.slug,
+                leftAt: new Date()
+            }
+        });
+
+        // 7. OPTIONAL: Notify community admin about the member leaving
+        if (community.admin && community.admin.toString() !== userId.toString()) {
+            await Notification.create({
+                user: community.admin,
+                type: 'info',
+                title: '👤 Member Left',
+                message: `${username || 'A user'} has left your community "${community.name}".`,
+                data: { 
+                    communityId: community._id,
+                    communityName: community.name,
+                    leftMemberId: userId,
+                    leftMemberName: username,
+                    memberCount: community.memberCount // The updated count after removal
+                }
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: `Successfully left community: ${community.name}`,
+            data: {
+                _id: community._id,
+                slug: community.slug,
+                memberCount: community.memberCount
+            }
+        });
+    } catch (error) {
+        console.error('Error leaving community:', error);
+        res.status(500).json({ success: false, message: 'Server error while leaving community.' });
+    }
+};
+
 export {
     getUserCommunities,
     getPopularCommunities,
@@ -500,5 +642,7 @@ export {
     getCommunityInformation,
     getAllDiscussionsInCommunity,
     joinCommunity, 
-    inviteMember
+    inviteMember,
+    getDiscoverableCommunities,
+    leaveCommunity
 };
