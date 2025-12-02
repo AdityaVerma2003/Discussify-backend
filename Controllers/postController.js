@@ -3,6 +3,7 @@ import Post from '../Models/Post.js';
 import Notification from '../Models/Notification.js';
 import Community from '../Models/Community.js'; 
 import path from 'path';
+import Comment from '../Models/Comment.js';
 
 // Helper to get io instance
 const getIo = (req) => req.app.get('io');
@@ -43,7 +44,7 @@ const notifyCommunityMembers = async (post, communityId, authorId, authorUsernam
  */
 export const createPost = async (req, res) => {
     try {
-        let { content, communityId} = req.body;
+        let { content, communityId } = req.body;
         const author = req.user._id;
 
         // Validation
@@ -58,8 +59,43 @@ export const createPost = async (req, res) => {
             type: 'text'
         };
 
-        // Handle file upload
-        if (req.file) {
+        // Handle multiple file uploads
+        if (req.files && req.files.length > 0) {
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+            const videoExtensions = ['.mp4', '.mov', '.webm'];
+            
+            const images = [];
+            const videos = [];
+
+            // Process each uploaded file
+            req.files.forEach(file => {
+                const filePath = `${API_BASE_URL}/uploads/${file.filename}`;
+                const fileExtension = path.extname(file.originalname).toLowerCase();
+
+                if (imageExtensions.includes(fileExtension)) {
+                    images.push(filePath);
+                } else if (videoExtensions.includes(fileExtension)) {
+                    videos.push(filePath);
+                }
+            });
+
+            // Determine post type based on uploaded files
+            if (images.length > 0 && videos.length === 0) {
+                newPostData.type = 'image';
+                newPostData.images = images;
+            } else if (videos.length > 0 && images.length === 0) {
+                newPostData.type = 'video';
+                newPostData.videoUrl = videos[0]; // Use first video
+                // If you want to support multiple videos, adjust your schema
+            } else if (images.length > 0 && videos.length > 0) {
+                // Mixed media - prioritize images or handle both
+                newPostData.type = 'image';
+                newPostData.images = images;
+                // Optionally store video URL as well if schema supports it
+            }
+        } 
+        // Handle single file upload (backward compatibility)
+        else if (req.file) {
             const filePath = `${API_BASE_URL}/uploads/${req.file.filename}`;
             const fileExtension = path.extname(req.file.originalname).toLowerCase();
 
@@ -70,9 +106,6 @@ export const createPost = async (req, res) => {
                 newPostData.type = 'video';
                 newPostData.videoUrl = filePath;
             } else {
-                // Treat other file types as generic files (if supported by multer config)
-                // For this example, we assume multer only allows images as per your middleware
-                // If you expand multer, adjust this logic.
                 newPostData.type = 'image';
                 newPostData.images = [filePath];
             }
@@ -163,5 +196,72 @@ export const togglePostVote = async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ success: false, message: error.message || 'Failed to toggle vote.' });
+    }
+};
+
+
+
+/**
+ * @desc Create a new comment/reply on a post
+ * @route POST /api/v1/posts/:postId/comment
+ * @access Private
+ */
+export const replyToPost = async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { content } = req.body; // You can add parentCommentId for nesting later
+
+        const author = req.user._id;
+
+        if (!content) {
+            return res.status(400).json({ success: false, message: 'Comment content is required.' });
+        }
+
+        const post = await Post.findById(postId);
+        if (!post) {
+            return res.status(404).json({ success: false, message: 'Post not found.' });
+        }
+
+        const communityId = post.community;
+
+        // 1. Create the new Comment
+        const newComment = await Comment.create({
+            content,
+            post: postId,
+            author,
+            community: communityId,
+            // For now, parentComment and replyToPost are the same as the main post
+            replyToPost: postId
+        });
+
+        // 2. Increment comment count on the Post
+        post.commentCount += 1;
+        await post.save();
+
+        // 3. Populate and prepare the comment for real-time delivery
+        const populatedComment = await Comment.findById(newComment._id)
+            .populate('author', 'username profileImage')
+            .lean();
+            
+        // 4. Emit Socket Event to the community (Real-time update)
+        // You might want a dedicated 'newComment' event, but for a simple reply system,
+        // you can also update the entire post object (commentCount changed).
+        
+        const updatedPost = await Post.findById(postId)
+            .populate('author', 'username profileImage')
+            .lean();
+            
+        getIo(req).to(communityId.toString()).emit('postUpdated', updatedPost);
+
+        // 5. Send success response with the new comment
+        res.status(201).json({ 
+            success: true, 
+            comment: populatedComment,
+            message: 'Comment created successfully. Post comment count updated.'
+        });
+
+    } catch (error) {
+        console.error('Error creating comment:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to create comment.' });
     }
 };
