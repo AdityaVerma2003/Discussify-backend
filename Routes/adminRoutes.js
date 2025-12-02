@@ -11,7 +11,8 @@ import {
     deletePost,
     editPost,
     resolveReports,
-    reportPostByAdmin
+    reportPostByAdmin,
+    getRecentActivityFeed
 } from '../Controllers/adminController.js';
 
 const router = express.Router();
@@ -20,6 +21,7 @@ router.use(protect);
 
 // 1. Analytics
 router.get('/analytics', getAppAnalytics);
+router.get('/activity-feed', getRecentActivityFeed);
 
 // 2. Community Management
 router.get('/communities', getAllCommunities);

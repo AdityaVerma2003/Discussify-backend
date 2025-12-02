@@ -3,6 +3,7 @@
 import User from '../Models/UserModel.js';
 import Community from '../Models/Community.js'; // Assuming you have this model
 import Post from '../Models/Post.js'; // Assuming you have this model
+import Notification from "../Models/Notification.js"
 
 // =======================================================
 // ANALYTICS & DASHBOARD
@@ -400,4 +401,45 @@ export const reportPostByAdmin = async (req, res) => {
         console.error('Error reporting post by admin:', error);
         res.status(500).json({ success: false, message: 'Server error during post reporting.' });
     }
+};
+
+// New Controller function for the Admin Dashboard Activity Feed
+export const getRecentActivityFeed = async (req, res) => {
+  try {
+   
+
+    // OPTIONAL: You might want to filter out 'otp' and 'welcome' if they spam the feed.
+    // query.type = { $nin: ['otp', 'welcome'] }; 
+
+    // 2. Fetch recent activities
+    const { limit = 7, page = 1 } = req.query; 
+
+    // 1. Define Query (No 'user' filter for site-wide feed)
+    const query = {};
+
+    // OPTIONAL: You might want to filter out 'otp' and 'welcome' if they spam the feed.
+    // query.type = { $nin: ['otp', 'welcome'] }; 
+
+    // 2. Fetch recent activities
+    const recentActivities = await Notification.find(query)
+      .sort({ createdAt: -1 }) // Sort by newest first
+      .limit(limit * 1) // Apply limit
+      .skip((page - 1) * limit) // Apply pagination skip
+      .populate('user', 'username email'); // OPTIONAL: Populate the user who received the notification
+
+    // 3. Count total (optional for a simple dashboard feed)
+    // const total = await Notification.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      activities: recentActivities,
+      // pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error fetching admin activity'
+    });
+  }
 };
